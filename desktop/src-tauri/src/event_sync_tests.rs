@@ -299,3 +299,131 @@ fn migrate_teams_supersedes_future_dated_head() {
     assert_eq!(row.created_at, future + 1);
     assert!(row.pending_sync);
 }
+
+/// A retained persona head whose disk record was deleted (a tombstone whose
+/// atomic purge+enqueue rolled back) is an orphan: boot's positive legs
+/// enumerate disk records and never revisit it, so only the deletion sweep can
+/// retract it. The sweep must enqueue a kind:5 tombstone and purge the head.
+#[test]
+fn deletion_reconcile_tombstones_orphan_persona_head() {
+    use crate::managed_agents::retention::{get_retained_event, open_retention_db};
+    use buzz_core_pkg::kind::{KIND_DELETION, KIND_PERSONA};
+
+    let base = tempfile::tempdir().unwrap();
+    write_base_personas(base.path(), &one_persona());
+    let keys = nostr::Keys::generate();
+    let pubkey = keys.public_key().to_hex();
+    let db_path = base.path().join("retention.db");
+
+    // Positive leg retains the head, then the disk record is deleted.
+    assert_eq!(migrate_personas_in_dir(base.path(), &keys).unwrap(), 1);
+    write_base_personas(base.path(), &serde_json::json!([]));
+
+    assert_eq!(
+        reconcile_deleted_heads_at(base.path(), &keys, &db_path).unwrap(),
+        1
+    );
+
+    let conn = open_retention_db(&db_path).unwrap();
+    // The 30175 head is purged and a kind:5 tombstone is enqueued for it.
+    assert!(
+        get_retained_event(&conn, KIND_PERSONA, &pubkey, "code-reviewer")
+            .unwrap()
+            .is_none(),
+        "the orphan head must be purged"
+    );
+    let tombstone_d_tag =
+        crate::managed_agents::retention::tombstone_retention_d_tag(KIND_PERSONA, "code-reviewer");
+    let tombstone = get_retained_event(&conn, KIND_DELETION, &pubkey, &tombstone_d_tag)
+        .unwrap()
+        .expect("a kind:5 tombstone is enqueued for the orphan");
+    assert!(
+        tombstone.pending_sync,
+        "the tombstone is queued for publish"
+    );
+}
+
+/// A head whose disk record still exists is NOT an orphan: the sweep must leave
+/// it alone. This is the guard that keeps the negative leg from retracting live
+/// state right after the positive leg retained it.
+#[test]
+fn deletion_reconcile_leaves_live_head_untouched() {
+    use crate::managed_agents::retention::{get_retained_event, open_retention_db};
+    use buzz_core_pkg::kind::{KIND_DELETION, KIND_PERSONA};
+
+    let base = tempfile::tempdir().unwrap();
+    write_base_personas(base.path(), &one_persona());
+    let keys = nostr::Keys::generate();
+    let pubkey = keys.public_key().to_hex();
+    let db_path = base.path().join("retention.db");
+
+    assert_eq!(migrate_personas_in_dir(base.path(), &keys).unwrap(), 1);
+
+    // The disk record is still present, so nothing is orphaned.
+    assert_eq!(
+        reconcile_deleted_heads_at(base.path(), &keys, &db_path).unwrap(),
+        0
+    );
+
+    let conn = open_retention_db(&db_path).unwrap();
+    assert!(
+        get_retained_event(&conn, KIND_PERSONA, &pubkey, "code-reviewer")
+            .unwrap()
+            .is_some(),
+        "a live head must survive the deletion sweep"
+    );
+    let tombstone_d_tag =
+        crate::managed_agents::retention::tombstone_retention_d_tag(KIND_PERSONA, "code-reviewer");
+    assert!(
+        get_retained_event(&conn, KIND_DELETION, &pubkey, &tombstone_d_tag)
+            .unwrap()
+            .is_none(),
+        "no tombstone may be enqueued for a live head"
+    );
+}
+
+/// A malformed `managed-agents.json` must fail loud (and be preserved as
+/// `.invalid`) — never read as empty and orphan every persona and agent head.
+/// This is the hard rider: a truncated file must never trigger tombstones.
+#[test]
+fn deletion_reconcile_malformed_store_fails_loud_without_tombstoning() {
+    use crate::managed_agents::retention::{get_retained_event, open_retention_db};
+    use buzz_core_pkg::kind::{KIND_DELETION, KIND_PERSONA};
+
+    let base = tempfile::tempdir().unwrap();
+    write_base_personas(base.path(), &one_persona());
+    let keys = nostr::Keys::generate();
+    let pubkey = keys.public_key().to_hex();
+    let db_path = base.path().join("retention.db");
+
+    assert_eq!(migrate_personas_in_dir(base.path(), &keys).unwrap(), 1);
+    // Truncate managed-agents.json to invalid JSON AFTER the head is retained.
+    std::fs::write(base.path().join("managed-agents.json"), b"{ truncated").unwrap();
+
+    let err = reconcile_deleted_heads_at(base.path(), &keys, &db_path)
+        .expect_err("a malformed store must fail loud");
+    assert!(
+        err.contains("managed-agents.json"),
+        "error names the store: {err}"
+    );
+    assert!(
+        base.path().join("managed-agents.json.invalid").exists(),
+        "the malformed store is preserved as .invalid"
+    );
+
+    let conn = open_retention_db(&db_path).unwrap();
+    assert!(
+        get_retained_event(&conn, KIND_PERSONA, &pubkey, "code-reviewer")
+            .unwrap()
+            .is_some(),
+        "a malformed store must NOT orphan a live head"
+    );
+    let tombstone_d_tag =
+        crate::managed_agents::retention::tombstone_retention_d_tag(KIND_PERSONA, "code-reviewer");
+    assert!(
+        get_retained_event(&conn, KIND_DELETION, &pubkey, &tombstone_d_tag)
+            .unwrap()
+            .is_none(),
+        "a fail-loud abort must enqueue no tombstones"
+    );
+}
