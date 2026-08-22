@@ -4,6 +4,7 @@ import { Hash, LogIn } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useMediaUpload } from "@/features/messages/lib/useMediaUpload";
+import { getRecentMentionPubkeys } from "@/features/messages/lib/recentMentionPubkeys";
 import { ComposerDockBackdrop } from "@/features/messages/ui/ComposerDockBackdrop";
 import { ComposerUploadProgressOverlay } from "@/features/messages/ui/ComposerUploadProgressOverlay";
 import { MessageComposer } from "@/features/messages/ui/MessageComposer";
@@ -174,6 +175,10 @@ export const ChannelPane = React.memo(function ChannelPane({
   const prepareDmSendChannel = usePrepareDmSendChannel(
     activeChannel,
     currentPubkey,
+  );
+  const recentMentionPubkeys = React.useMemo(
+    () => getRecentMentionPubkeys(messages),
+    [messages],
   );
   const mainComposerMedia = useMediaUpload({ deferUploadsUntilSend: true });
   const [isMainDeferredEditPending, setMainDeferredEditPending] =
@@ -782,6 +787,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                     }
                     onSend={handleSendMessage}
                     profiles={profiles}
+                    recentMentionPubkeys={recentMentionPubkeys}
                     showBackgroundUploadProgress={false}
                     placeholder={
                       timeoutState.active
@@ -891,6 +897,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                 onToggleReaction={onToggleReaction}
                 onUnfollowThread={onUnfollowThread}
                 profiles={profiles}
+                recentMentionPubkeys={recentMentionPubkeys}
                 replyTargetMessage={threadReplyTargetMessage}
                 scrollTargetHighlights={!layoutScrollTargetId}
                 scrollTargetId={layoutScrollTargetId ?? threadScrollTargetId}
