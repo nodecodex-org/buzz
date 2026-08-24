@@ -25,6 +25,16 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+export function isEditorViewMounted(editor: Editor): boolean {
+  // The proxy behind `editor.view` throws before mount; probing is the only
+  // synchronous way to know whether the view is attached yet.
+  try {
+    return Boolean(editor.view);
+  } catch {
+    return false;
+  }
+}
+
 function getSelectionRect(editor: Editor): DOMRect | null {
   const { from, to } = editor.state.selection;
 
@@ -152,10 +162,31 @@ export function SelectionFormattingTray({
     });
   }, [cancelScheduledUpdate, updatePosition]);
 
+  // tiptap's `editor.view` accessor throws until EditorContent attaches the
+  // view, and on a freshly created editor this component's wiring effect can
+  // run first — track view availability instead of reading it blind.
+  const [viewMounted, setViewMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!editor) {
+      setViewMounted(false);
+      return;
+    }
+    setViewMounted(isEditorViewMounted(editor));
+    const handleMount = () => setViewMounted(true);
+    const handleUnmount = () => setViewMounted(false);
+    editor.on("mount", handleMount);
+    editor.on("unmount", handleUnmount);
+    return () => {
+      editor.off("mount", handleMount);
+      editor.off("unmount", handleUnmount);
+    };
+  }, [editor]);
+
   React.useEffect(() => {
     suppressRightClickUpdatesRef.current = false;
 
-    if (!editor) {
+    if (!editor || !viewMounted) {
       cancelScheduledUpdate();
       setPosition(null);
       return;
@@ -199,7 +230,7 @@ export function SelectionFormattingTray({
       window.removeEventListener("resize", scheduleUpdate);
       window.removeEventListener("scroll", scheduleUpdate, true);
     };
-  }, [cancelScheduledUpdate, editor, scheduleUpdate]);
+  }, [cancelScheduledUpdate, editor, scheduleUpdate, viewMounted]);
 
   React.useLayoutEffect(() => {
     if (!position || !trayRef.current) return;
