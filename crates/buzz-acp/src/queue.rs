@@ -1441,15 +1441,15 @@ pub struct FormatPromptArgs<'a> {
     pub profile_lookup: Option<&'a PromptProfileLookup>,
     /// When true, base_prompt and system_prompt are delivered via the system
     /// role (session/new) and omitted from the user message. When false
-    /// (legacy agents), they are injected as `[Base]` and `[Agent Instructions]` sections.
+    /// (legacy agents), they are injected as `<base>` and `<system>` sections.
     pub has_system_prompt_support: bool,
     /// Base prompt content for legacy agents (protocol_version < 2).
     pub base_prompt: Option<&'a str>,
     /// System prompt content for legacy agents (protocol_version < 2).
     pub system_prompt: Option<&'a str>,
-    /// Team instructions for legacy agents, rendered after `[Agent Instructions]`.
+    /// Team instructions for legacy agents, rendered after `<system>`.
     pub team_instructions: Option<&'a str>,
-    /// Rendered `[Channel Canvas]` metadata section for legacy agents.
+    /// Rendered `<channel-canvas>` metadata section for legacy agents.
     ///
     /// For modern agents (protocol_version >= 2) the section is delivered via
     /// the system role in session/new; omit here to avoid duplication.
@@ -1493,46 +1493,60 @@ impl StandingContext<'_> {
             sections.push(base_section(bp));
         }
         if let Some(sp) = self.system_prompt {
-            sections.push(format!("[Agent Instructions]\n{sp}"));
+            sections.push(crate::prompt_framing::semantic_section("system", sp));
         }
         if let Some(team) = self
             .team_instructions
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            sections.push(format!("[Team Instructions]\n{team}"));
+            sections.push(crate::prompt_framing::semantic_section(
+                "team-instructions",
+                team,
+            ));
         }
         if let Some(core) = self.agent_core {
-            sections.push(core.to_string());
+            sections.push(crate::prompt_framing::normalize_semantic_section(
+                "core-memory",
+                "Agent Memory — core",
+                core,
+            ));
         }
         if let Some(instructions) = self
             .huddle_instructions
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            sections.push(format!("[Huddle Instructions]\n{instructions}"));
+            sections.push(crate::prompt_framing::semantic_section(
+                "huddle-instructions",
+                instructions,
+            ));
         }
         if let Some(canvas) = self.agent_canvas {
-            sections.push(canvas.to_string());
+            sections.push(crate::prompt_framing::normalize_semantic_section(
+                "channel-canvas",
+                "Channel Canvas",
+                canvas,
+            ));
         }
         sections
     }
 }
 
-/// Format the `[Base]` section for the base prompt.
+/// Format the `<base>` section for the base prompt.
 ///
-/// Single source of truth for the `[Base]` framing so the format is defined in
+/// Single source of truth for the `<base>` framing so the format is defined in
 /// exactly one place across all dispatch paths (batch flush, heartbeat,
 /// initial message).
 pub(crate) fn base_section(base_prompt: &str) -> String {
-    format!("[Base]\n{}", base_prompt.trim_end())
+    crate::prompt_framing::semantic_section("base", base_prompt.trim_end())
 }
 
 /// Format a [`FlushBatch`] into the per-section prompt blocks for the agent.
 ///
 /// Produces a stable prompt with these sections (in order):
-/// 0. [`StandingContext`] — `[Base]`, `[Agent Instructions]`, `[Team Instructions]`,
-///    `[Agent Memory — core]`, `[Channel Canvas]`. Legacy agents only, and only
+/// 0. [`StandingContext`] — `<base>`, `<system>`, `<team-instructions>`,
+///    `<core-memory>`, `<huddle-instructions>`, `<channel-canvas>`. Legacy agents only, and only
 ///    on the session's first message (see `standing_context_sent`)
 /// 1. `[Context]` — scope, channel name, and contextual hints for the agent
 /// 2. `[Thread Context]` or `[Conversation Context]` — if fetched
@@ -1821,12 +1835,14 @@ mod tests {
 
     #[test]
     fn test_base_section_prepends_header_and_trims_trailing_whitespace() {
-        // Trailing whitespace/newlines are stripped; the [Base] header is
-        // prepended exactly once with a single newline separator.
-        assert_eq!(base_section("hello  \n\n"), "[Base]\nhello");
-        assert_eq!(base_section("hello"), "[Base]\nhello");
+        // Trailing whitespace/newlines are stripped and the boundary is paired.
+        assert_eq!(base_section("hello  \n\n"), "<base>\nhello\n</base>");
+        assert_eq!(base_section("hello"), "<base>\nhello\n</base>");
         // Internal newlines and leading whitespace are preserved verbatim.
-        assert_eq!(base_section("  line1\nline2 "), "[Base]\n  line1\nline2");
+        assert_eq!(
+            base_section("  line1\nline2 "),
+            "<base>\n  line1\nline2\n</base>"
+        );
     }
 
     #[test]
@@ -2469,7 +2485,7 @@ mod tests {
         )
         .join("\n\n");
         assert!(
-            prompt.starts_with("[Agent Memory — core]\nbe helpful\n\n[Context]"),
+            prompt.starts_with("<core-memory>\nbe helpful\n</core-memory>\n\n[Context]"),
             "expected core block first, then [Context]; got: {prompt}"
         );
     }
@@ -2530,7 +2546,7 @@ mod tests {
             },
         )
         .join("\n\n");
-        assert!(prompt.starts_with("[Agent Memory — core]\nbe helpful\n\n[Context]"));
+        assert!(prompt.starts_with("<core-memory>\nbe helpful\n</core-memory>\n\n[Context]"));
     }
 
     #[test]
@@ -2588,31 +2604,28 @@ mod tests {
 
         // Both sections must be present
         assert!(
-            prompt.contains("[Base]\ntest base prompt"),
-            "missing [Base] section"
+            prompt.contains("<base>\ntest base prompt\n</base>"),
+            "missing <base> section"
         );
         assert!(
-            prompt.contains("[Agent Instructions]\ntest system prompt"),
-            "missing [Agent Instructions] section"
+            prompt.contains("<system>\ntest system prompt\n</system>"),
+            "missing <system> section"
         );
 
         // [Base] and [Agent Instructions] must appear BEFORE [Agent Memory] and [Context]
-        let base_pos = prompt.find("[Base]").unwrap();
-        let system_pos = prompt.find("[Agent Instructions]").unwrap();
-        let core_pos = prompt.find("[Agent Memory").unwrap();
+        let base_pos = prompt.find("<base>").unwrap();
+        let system_pos = prompt.find("<system>").unwrap();
+        let core_pos = prompt.find("<core-memory>").unwrap();
         let context_pos = prompt.find("[Context]").unwrap();
 
-        assert!(
-            base_pos < system_pos,
-            "[Base] should come before [Agent Instructions]"
-        );
+        assert!(base_pos < system_pos, "<base> should come before <system>");
         assert!(
             system_pos < core_pos,
-            "[Agent Instructions] should come before [Agent Memory]"
+            "<system> should come before <core-memory>"
         );
         assert!(
             core_pos < context_pos,
-            "[Agent Memory] should come before [Context]"
+            "<core-memory> should come before [Context]"
         );
     }
 
@@ -2651,11 +2664,11 @@ mod tests {
         let later = format_prompt(&batch, &args(true)).join("\n\n");
 
         for section in [
-            "[Base]",
-            "[Agent Instructions]",
-            "[Team Instructions]",
-            "[Agent Memory — core]",
-            "[Channel Canvas]",
+            "<base>",
+            "<system>",
+            "<team-instructions>",
+            "<core-memory>",
+            "<channel-canvas>",
         ] {
             assert!(first.contains(section), "first message missing {section}");
             assert!(!later.contains(section), "turn 2 repeated {section}");
@@ -2748,9 +2761,7 @@ mod tests {
         .join("\n\n");
 
         // Verify section ordering: [Agent Memory] < [Context] < [Thread Context]
-        let core_pos = prompt
-            .find("[Agent Memory")
-            .expect("[Agent Memory] missing");
+        let core_pos = prompt.find("<core-memory>").expect("<core-memory> missing");
         let context_pos = prompt.find("[Context]").expect("[Context] missing");
         let thread_pos = prompt
             .find("[Thread Context")
@@ -2758,7 +2769,7 @@ mod tests {
 
         assert!(
             core_pos < context_pos,
-            "[Agent Memory] must come before [Context]"
+            "<core-memory> must come before [Context]"
         );
         assert!(
             context_pos < thread_pos,
@@ -4871,7 +4882,7 @@ mod tests {
         )
         .join("\n\n");
         assert!(
-            prompt.contains("[Channel Canvas]"),
+            prompt.contains("<channel-canvas>"),
             "legacy agent prompt must include canvas section; got: {prompt}"
         );
     }

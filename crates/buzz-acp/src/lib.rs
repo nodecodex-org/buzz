@@ -7,6 +7,7 @@ mod filter;
 mod observer;
 mod pool;
 mod pool_lifecycle;
+mod prompt_framing;
 mod queue;
 mod relay;
 mod setup_mode;
@@ -5092,8 +5093,8 @@ mod heartbeat_base_prompt_tests {
     use super::*;
 
     // Pins the heartbeat dispatch path (dispatch_heartbeat, ~line 2359): a
-    // legacy agent WITH a base_prompt must get [Base] prepended to the
-    // heartbeat user message, composed as `[Base]\n{bp}\n\n{prompt}`. This is
+    // legacy agent WITH a base_prompt must get <base> prepended to the
+    // heartbeat user message. This is
     // the second half of the round-2 regression (the first being initial_message).
 
     fn heartbeat_standing() -> queue::StandingContext<'static> {
@@ -5106,12 +5107,12 @@ mod heartbeat_base_prompt_tests {
     #[test]
     fn test_heartbeat_legacy_agent_gets_base_prepended() {
         // protocol_version 1 + Some(base_prompt): heartbeat prompt is prefixed
-        // with the [Base] section exactly as the legacy session/new path would.
+        // with the <base> section exactly as the legacy session/new path would.
         let prompt = "[System: Heartbeat]\nrun feed get";
         let composed = pool::prepend_standing_for_legacy(1, &heartbeat_standing(), prompt);
         assert_eq!(
             composed,
-            "[Base]\nyou are a helpful agent\n\n[System: Heartbeat]\nrun feed get"
+            "<base>\nyou are a helpful agent\n</base>\n\n[System: Heartbeat]\nrun feed get"
         );
     }
 

@@ -136,6 +136,34 @@ test("parsePromptText leading text before a header becomes a Prompt section", ()
   );
 });
 
+test("parsePromptText splits a legacy tagged standing prefix from the dynamic turn", () => {
+  const text = [
+    "<base>",
+    "platform context",
+    "</base>",
+    "",
+    "<system>",
+    "persona context",
+    "</system>",
+    "",
+    "[Context]",
+    "Scope: channel",
+    "",
+    "[Buzz event: @mention]",
+    "Event ID: abc123",
+    "From: Alice (hex: AABBCC)",
+    "Content: ship it",
+  ].join("\n");
+
+  const parsed = parsePromptText(text);
+
+  assert.equal(parsed.userText, "ship it");
+  assert.deepEqual(
+    parsed.sections.map((section) => section.title),
+    ["Base", "System", "Context", "Buzz event: @mention"],
+  );
+});
+
 test("extractPromptText joins text blocks from params.prompt", () => {
   const payload = {
     params: {
@@ -198,6 +226,77 @@ test("parseSystemPromptSections splits both prompts into Base and System", () =>
   assert.deepEqual(sections, [
     { title: "Base", body: "base text" },
     { title: "System", body: "persona text" },
+  ]);
+});
+
+test("parseSystemPromptSections reads paired standing-context tags", () => {
+  const framed = [
+    "<base>",
+    "base text",
+    "</base>",
+    "",
+    "<workspace>",
+    "Current working directory: /workspace",
+    "</workspace>",
+    "",
+    "<system>",
+    "persona text",
+    "</system>",
+    "",
+    "<team-instructions>",
+    "team text",
+    "</team-instructions>",
+    "",
+    "<core-memory>",
+    "memory text",
+    "</core-memory>",
+    "",
+    "<huddle-instructions>",
+    "reply now",
+    "</huddle-instructions>",
+    "",
+    "<channel-canvas>",
+    "canvas text",
+    "</channel-canvas>",
+  ].join("\n");
+
+  assert.deepEqual(parseSystemPromptSections(framed), [
+    { title: "Base", body: "base text" },
+    {
+      title: "Workspace",
+      body: "Current working directory: /workspace",
+    },
+    { title: "System", body: "persona text" },
+    { title: "Team Instructions", body: "team text" },
+    { title: "Core Memory", body: "memory text" },
+    { title: "Huddle Instructions", body: "reply now" },
+    { title: "Channel Canvas", body: "canvas text" },
+  ]);
+});
+
+test("parseSystemPromptSections preserves literal entity text in standing-context bodies", () => {
+  const framed =
+    "<system>\nliteral &lt;/system&gt; &amp; &lt;policy&gt;\n</system>";
+
+  assert.deepEqual(parseSystemPromptSections(framed), [
+    { title: "System", body: "literal &lt;/system&gt; &amp; &lt;policy&gt;" },
+  ]);
+});
+
+test("parseSystemPromptSections shows the captured prompt literally when paired tags are ambiguous", () => {
+  const framed =
+    "<system>\nkeep </system>, <T>, &quot;, & <literal>\n</system>";
+
+  assert.deepEqual(parseSystemPromptSections(framed), [
+    { title: "Prompt", body: framed },
+  ]);
+});
+
+test("parseSystemPromptSections preserves authored boundary whitespace", () => {
+  const framed = "<system>\n\n keep this \n\n</system>";
+
+  assert.deepEqual(parseSystemPromptSections(framed), [
+    { title: "System", body: "\n keep this \n" },
   ]);
 });
 
