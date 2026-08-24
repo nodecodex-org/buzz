@@ -5238,7 +5238,7 @@ fn parse_api_token_row(row: sqlx::postgres::PgRow) -> Result<ApiTokenRecord> {
 }
 
 #[cfg(test)]
-mod tests {
+mod postgres_tests {
     //! Pin the load-bearing contract for `Db::communities_of_channels`:
     //! a channel id that does NOT exist MUST be absent from the result
     //! map, never mapped to a default. The relay-side read-row emitter
@@ -5260,6 +5260,11 @@ mod tests {
         let pool = PgPool::connect(&database_url)
             .await
             .expect("connect to test DB");
+        if std::env::var("BUZZ_TEST_SCHEMA_MODE").as_deref() == Ok("migration") {
+            migration::run_migrations(&pool)
+                .await
+                .expect("apply migration schema");
+        }
         Db::from_pool(pool)
     }
 
@@ -5775,7 +5780,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires Postgres"]
-    async fn nip_rs_transaction_operation_restores_hard_delete_opt_in() {
+    async fn migration_schema_nip_rs_transaction_operation_restores_hard_delete_opt_in() {
         use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
 
         let db = setup_db().await;
@@ -6225,7 +6230,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires Postgres"]
-    async fn mesh_status_replacement_keeps_one_physical_row() {
+    async fn migration_schema_mesh_status_replacement_keeps_one_physical_row() {
         use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
 
         let db = setup_db().await;
@@ -6457,7 +6462,8 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires Postgres"]
-    async fn nip_rs_hard_delete_fence_fails_closed_and_scopes_opt_in_to_transaction() {
+    async fn migration_schema_nip_rs_hard_delete_fence_fails_closed_and_scopes_opt_in_to_transaction(
+    ) {
         use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
 
         let db = setup_db().await;
@@ -6603,7 +6609,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires Postgres"]
-    async fn database_guard_covers_legacy_writer_and_nip09_deletion() {
+    async fn migration_schema_database_guard_covers_legacy_writer_and_nip09_deletion() {
         use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
 
         let db = setup_db().await;
@@ -7133,8 +7139,8 @@ mod tests {
         let db = setup_db().await;
         let owner = format!("{:064x}", Uuid::new_v4().as_u128());
 
-        // Create 3 communities for this owner (the max).
-        for i in 0..3 {
+        // Fill the configured default ownership limit.
+        for i in 0..crate::relay_members::MAX_COMMUNITIES_PER_OWNER {
             let host = format!("limit-test-{}-{}.example", i, Uuid::new_v4().simple());
             assert!(matches!(
                 db.create_community_with_owner(&host, &owner)
@@ -7144,7 +7150,7 @@ mod tests {
             ));
         }
 
-        let host = format!("limit-test-3-{}.example", Uuid::new_v4().simple());
+        let host = format!("limit-test-overflow-{}.example", Uuid::new_v4().simple());
         assert_eq!(
             db.create_community_with_owner(&host, &owner)
                 .await
