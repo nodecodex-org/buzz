@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 
 import { cn } from "@/shared/lib/cn";
+import { useEditorViewMounted } from "../lib/useEditorViewMounted";
 import { FormattingToolbar } from "./FormattingToolbar";
 
 type SelectionFormattingTrayProps = {
@@ -23,16 +24,6 @@ const MIN_SPACE_ABOVE = 44;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
-}
-
-export function isEditorViewMounted(editor: Editor): boolean {
-  // The proxy behind `editor.view` throws before mount; probing is the only
-  // synchronous way to know whether the view is attached yet.
-  try {
-    return Boolean(editor.view);
-  } catch {
-    return false;
-  }
 }
 
 function getSelectionRect(editor: Editor): DOMRect | null {
@@ -162,26 +153,10 @@ export function SelectionFormattingTray({
     });
   }, [cancelScheduledUpdate, updatePosition]);
 
-  // tiptap's `editor.view` accessor throws until EditorContent attaches the
-  // view, and on a freshly created editor this component's wiring effect can
-  // run first — track view availability instead of reading it blind.
-  const [viewMounted, setViewMounted] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!editor) {
-      setViewMounted(false);
-      return;
-    }
-    setViewMounted(isEditorViewMounted(editor));
-    const handleMount = () => setViewMounted(true);
-    const handleUnmount = () => setViewMounted(false);
-    editor.on("mount", handleMount);
-    editor.on("unmount", handleUnmount);
-    return () => {
-      editor.off("mount", handleMount);
-      editor.off("unmount", handleUnmount);
-    };
-  }, [editor]);
+  // Reading `editor.view.dom` before EditorContent attaches the view throws,
+  // and on a freshly created editor this component's wiring effect can run
+  // first — gate the wiring on tracked view availability instead.
+  const viewMounted = useEditorViewMounted(editor);
 
   React.useEffect(() => {
     suppressRightClickUpdatesRef.current = false;
