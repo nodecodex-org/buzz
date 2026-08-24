@@ -57,6 +57,7 @@
     --buzz-gradient-dark-top: #4a4616;
     --buzz-gradient-dark-bottom: #0a1423;
     --buzz-content-dark: 0 0% 10.1960784314%;
+    --mention-foreground: var(--buzz-content-dark);
     /* Hosted-community onboarding intentionally keeps this light palette in
        both app themes; semantic tokens keep component code color-agnostic. */
     --buzz-hosted-community-surface-fg: 23 23 23;
@@ -117,6 +118,7 @@
     --sidebar-accent-foreground: 227 68.25% 87.65%;
     --sidebar-border: 231 15.61% 33.92%;
     --sidebar-ring: 231 15.61% 33.92%;
+    --mention-foreground: 0 0% 96%;
   }
 
   * {

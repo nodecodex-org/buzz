@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { SYNTAX_THEMES } from "../../src/shared/theme/theme-loader";
 import {
   installMockBridge,
   openChannelBrowser,
@@ -36,6 +37,85 @@ const DM_THREAD_AGENT_MENTION_ERROR_TEXT =
   "Agents must already be in a DM to be mentioned in its threads. Start a new conversation that includes the agent.";
 const DM_THREAD_MEMBERS_LOADING_ERROR_TEXT =
   "Checking conversation members. Try again in a moment.";
+
+async function readRenderedContrast(
+  locator: import("@playwright/test").Locator,
+) {
+  return locator.evaluate((element) => {
+    type Rgba = { r: number; g: number; b: number; a: number };
+    const parseColor = (value: string): Rgba => {
+      if (value === "transparent") return { r: 0, g: 0, b: 0, a: 0 };
+      const canvas = document.createElement("canvas");
+      canvas.width = 1;
+      canvas.height = 1;
+      const context = canvas.getContext("2d");
+      if (!context) return { r: 0, g: 0, b: 0, a: 0 };
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = value;
+      context.fillRect(0, 0, 1, 1);
+      const [r, g, b, alpha] = context.getImageData(0, 0, 1, 1).data;
+      return { r, g, b, a: alpha / 255 };
+    };
+    const composite = (foreground: Rgba, background: Rgba): Rgba => {
+      const alpha = foreground.a + background.a * (1 - foreground.a);
+      if (alpha === 0) return { r: 0, g: 0, b: 0, a: 0 };
+      return {
+        r:
+          (foreground.r * foreground.a +
+            background.r * background.a * (1 - foreground.a)) /
+          alpha,
+        g:
+          (foreground.g * foreground.a +
+            background.g * background.a * (1 - foreground.a)) /
+          alpha,
+        b:
+          (foreground.b * foreground.a +
+            background.b * background.a * (1 - foreground.a)) /
+          alpha,
+        a: alpha,
+      };
+    };
+    const backgrounds: Rgba[] = [];
+    for (let node: Element | null = element; node; node = node.parentElement) {
+      backgrounds.push(parseColor(getComputedStyle(node).backgroundColor));
+    }
+    const background = backgrounds
+      .reverse()
+      .reduce((result, layer) => composite(layer, result), {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+      });
+    const foreground = composite(
+      parseColor(getComputedStyle(element).color),
+      background,
+    );
+    const luminance = (color: Rgba) =>
+      [color.r, color.g, color.b]
+        .map((channel) => {
+          const value = channel / 255;
+          return value <= 0.04045
+            ? value / 12.92
+            : ((value + 0.055) / 1.055) ** 2.4;
+        })
+        .reduce(
+          (sum, channel, index) =>
+            sum + channel * [0.2126, 0.7152, 0.0722][index],
+          0,
+        );
+    const foregroundLuminance = luminance(foreground);
+    const backgroundLuminance = luminance(background);
+    return {
+      background: getComputedStyle(element).backgroundColor,
+      backgroundAlpha: parseColor(getComputedStyle(element).backgroundColor).a,
+      contrast:
+        (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) /
+        (Math.min(foregroundLuminance, backgroundLuminance) + 0.05),
+      foreground: getComputedStyle(element).color,
+    };
+  });
+}
 
 /** Locator scoped to the mention autocomplete dropdown inside the composer. */
 function autocomplete(page: import("@playwright/test").Page) {
@@ -2733,6 +2813,48 @@ test("mention text is highlighted in sent messages", async ({ page }) => {
   await expect(mentionChip).toHaveText("bob");
   await expect(mentionChip).toHaveClass(/inline-chip-icon-human/);
 });
+
+for (const theme of SYNTAX_THEMES) {
+  test(`mention chip keeps AA contrast and theme accent in ${theme}`, async ({
+    page,
+  }) => {
+    await page.addInitScript((themeName) => {
+      window.localStorage.setItem("buzz-theme", themeName);
+    }, theme);
+    await page.goto("/");
+    await page.getByTestId("channel-general").click();
+    await expect(page.getByTestId("chat-title")).toHaveText("general");
+    await waitForMockLiveSubscription(page, "general");
+
+    await emitMockMessage(page, "general", `Ask @bob in ${theme}`, {
+      mentionPubkeys: [TEST_IDENTITIES.bob.pubkey],
+    });
+    await waitForTimelineSettled(page);
+
+    const mentionChip = page
+      .getByTestId("message-row")
+      .filter({ hasText: `Ask bob in ${theme}` })
+      .locator("[data-mention]", { hasText: "bob" });
+    await expect(mentionChip).toBeVisible();
+
+    const resting = await readRenderedContrast(mentionChip);
+    expect(resting.contrast).toBeGreaterThanOrEqual(4.5);
+    expect(resting.backgroundAlpha).toBeLessThan(1);
+
+    await mentionChip.hover();
+    await expect
+      .poll(() =>
+        mentionChip.evaluate(
+          (element) => getComputedStyle(element).backgroundColor,
+        ),
+      )
+      .not.toBe(resting.background);
+    const hovered = await readRenderedContrast(mentionChip);
+    expect(hovered.foreground).toBe(resting.foreground);
+    expect(hovered.contrast).toBeGreaterThanOrEqual(4.5);
+    expect(hovered.backgroundAlpha).toBeLessThan(1);
+  });
+}
 
 test("clicking author name opens user profile panel", async ({ page }) => {
   await page.goto("/");

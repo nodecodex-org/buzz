@@ -302,6 +302,19 @@
   color: hsl(var(--primary) / 0.9);
 }
 
+/* Mention backgrounds follow the active accent, while foreground text keeps
+   normal-size labels at AA contrast across light, dark, and custom themes. */
+.message-markdown .mention-chip.inline-chip-icon-human,
+.message-markdown .mention-chip.inline-chip-icon-agent {
+  color: hsl(var(--mention-foreground));
+}
+
+.message-markdown .mention-chip-hover.inline-chip-icon-human:hover,
+.message-markdown .mention-chip-hover.inline-chip-icon-agent:hover {
+  background: hsl(var(--primary) / 0.2);
+  color: hsl(var(--mention-foreground));
+}
+
 .message-markdown .mention-prefix-hidden {
   display: inline-block;
   width: 0;
