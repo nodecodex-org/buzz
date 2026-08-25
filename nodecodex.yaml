@@ -1,0 +1,7 @@
+# Generado automáticamente por el reconciler de nodecodex-org/ci-templates.
+# Edítalo si quieres forzar valores específicos. El reconciler respeta
+# valores explícitos y solo sobreescribe los que estén en "auto".
+
+type: other            # api | web | platform | worker | other
+language: node    # node | python | rust | go | auto
+runtime: dockerfile      # nixpacks | railpack | dockerfile | auto
