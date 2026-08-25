@@ -4,7 +4,6 @@ import { Hash, LogIn } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useMediaUpload } from "@/features/messages/lib/useMediaUpload";
-import { getRecentMentionPubkeys } from "@/features/messages/lib/recentMentionPubkeys";
 import { ComposerDockBackdrop } from "@/features/messages/ui/ComposerDockBackdrop";
 import { ComposerUploadProgressOverlay } from "@/features/messages/ui/ComposerUploadProgressOverlay";
 import { MessageComposer } from "@/features/messages/ui/MessageComposer";
@@ -175,10 +174,6 @@ export const ChannelPane = React.memo(function ChannelPane({
   const prepareDmSendChannel = usePrepareDmSendChannel(
     activeChannel,
     currentPubkey,
-  );
-  const recentMentionPubkeys = React.useMemo(
-    () => getRecentMentionPubkeys(messages),
-    [messages],
   );
   const mainComposerMedia = useMediaUpload({ deferUploadsUntilSend: true });
   const [isMainDeferredEditPending, setMainDeferredEditPending] =
@@ -378,7 +373,6 @@ export const ChannelPane = React.memo(function ChannelPane({
       }),
     [activeChannel, currentPubkey, profiles],
   );
-
   const handleWelcomeAddAgent = React.useCallback(() => {
     onAddAgent?.({
       beforeSend: () =>
@@ -394,13 +388,14 @@ export const ChannelPane = React.memo(function ChannelPane({
     onWelcomeAddAgent: onAddAgent ? handleWelcomeAddAgent : undefined,
   });
   const channelIntro = isHuddleTranscript ? null : standardChannelIntro;
-  const { mainTimelineEntries, visibleMessages } = useChannelPaneMessages({
-    activeChannel,
-    isHuddleTranscript,
-    messages,
-    profiles,
-    threadSummaries,
-  });
+  const { mainTimelineEntries, recentMentions, visibleMessages } =
+    useChannelPaneMessages({
+      activeChannel,
+      isHuddleTranscript,
+      messages,
+      profiles,
+      threadSummaries,
+    });
   useRenderScopedReactionHydration({
     activeChannel,
     mainTimelineEntries,
@@ -786,8 +781,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                         : undefined
                     }
                     onSend={handleSendMessage}
-                    profiles={profiles}
-                    recentMentionPubkeys={recentMentionPubkeys}
+                    {...{ profiles, recentMentionPubkeys: recentMentions }}
                     showBackgroundUploadProgress={false}
                     placeholder={
                       timeoutState.active
@@ -896,8 +890,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                 onScrollTargetSettled={resolveScrollTarget}
                 onToggleReaction={onToggleReaction}
                 onUnfollowThread={onUnfollowThread}
-                profiles={profiles}
-                recentMentionPubkeys={recentMentionPubkeys}
+                {...{ profiles, recentMentionPubkeys: recentMentions }}
                 replyTargetMessage={threadReplyTargetMessage}
                 scrollTargetHighlights={!layoutScrollTargetId}
                 scrollTargetId={layoutScrollTargetId ?? threadScrollTargetId}
