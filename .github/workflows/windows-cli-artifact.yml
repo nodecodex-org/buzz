@@ -1,0 +1,37 @@
+name: Windows CLI artifact
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "crates/buzz-cli/**"
+      - "crates/buzz-sdk/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/windows-cli-artifact.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Add Windows target
+        shell: bash
+        run: rustup target add x86_64-pc-windows-msvc
+      - name: Build Buzz CLI
+        shell: bash
+        run: cargo build --release --target x86_64-pc-windows-msvc -p buzz-cli
+      - name: Upload Buzz CLI
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: buzz-cli-windows-x64-${{ github.sha }}
+          path: target/x86_64-pc-windows-msvc/release/buzz.exe
+          if-no-files-found: error
+          retention-days: 7
