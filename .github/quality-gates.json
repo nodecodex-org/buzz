@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "kind": "application",
+  "statuses": [
+    {
+      "context": "paperclip/qa-autopilot",
+      "creatorId": 248911622,
+      "browserMatrix": true
+    }
+  ],
+  "requirements": [
+    {
+      "workflow": "ci.yml",
+      "roles": [
+        "tests",
+        "build",
+        "security"
+      ],
+      "checks": [
+        "ci / Security scans",
+        "ci / Test (Node)",
+        "ci / CI summary"
+      ]
+    }
+  ]
+}
