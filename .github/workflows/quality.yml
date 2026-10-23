@@ -4,7 +4,8 @@ on:
   status:
   workflow_run:
     workflows: ["*"]
-    types: [requested, in_progress, completed]
+    # New PRs publish pending; only completion can change a workflow verdict.
+    types: [completed]
   workflow_dispatch:
     inputs:
       pr:
