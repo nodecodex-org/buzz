@@ -1,0 +1,33 @@
+name: Required quality
+on:
+  pull_request:
+  status:
+  workflow_run:
+    workflows: ["*"]
+    # New PRs publish pending; only completion can change a workflow verdict.
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to reconcile
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+  statuses: write
+concurrency:
+  group: required-quality-reconcile
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    if: (github.event_name != 'status' || github.event.context == 'paperclip/qa-autopilot') && (github.event_name != 'workflow_run' || github.event.workflow_run.name != 'Required quality')
+    runs-on: [self-hosted, nodecodex-ci-control]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      # No candidate checkout, artifact execution or application credentials.
+      - uses: nodecodex-org/ci-templates/.github/actions/required-quality@main
