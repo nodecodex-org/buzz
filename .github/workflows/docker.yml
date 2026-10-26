@@ -93,10 +93,10 @@ jobs:
       matrix:
         include:
           - platform: linux/amd64
-            runner: ubuntu-24.04
+            runner: [self-hosted, Linux, X64, nodecodex-ci]
             arch: amd64
           - platform: linux/arm64
-            runner: ubuntu-24.04-arm
+            runner: [self-hosted, Linux, ARM64, nodecodex-ci]
             arch: arm64
 
     steps:
@@ -225,7 +225,7 @@ jobs:
   merge:
     name: Merge ${{ matrix.variant }} multi-arch manifest
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, nodecodex-ci]
     needs: build
     timeout-minutes: 15
     permissions:
@@ -352,10 +352,10 @@ jobs:
       matrix:
         include:
           - platform: linux/amd64
-            runner: ubuntu-24.04
+            runner: [self-hosted, Linux, X64, nodecodex-ci]
             arch: amd64
           - platform: linux/arm64
-            runner: ubuntu-24.04-arm
+            runner: [self-hosted, Linux, ARM64, nodecodex-ci]
             arch: arm64
     steps:
       - name: Checkout
@@ -420,7 +420,7 @@ jobs:
   push-gateway-merge:
     name: Publish public push gateway image
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, nodecodex-ci]
     needs: push-gateway-build
     timeout-minutes: 15
     permissions:
